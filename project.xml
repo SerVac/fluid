@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<project>
+	
+	<meta title="Pirate Pig" package="org.openfl.samples.Fluids" version="1.0.0" company="OpenFL Technologies" />
+	<app path="Export" file="DemosFluids" main="fluids.DemosFluidsMod" />
+	
+	<window width="1200" height="800" if="desktop" />
+	<window width="0" height="0" if="html5" />
+	
+	<source path="Source" />
+	
+	<haxelib name="openfl" />
+	<haxelib name="actuate" />
+	
+	<ios binaries="armv7" />
+	
+	
+	<section if="release-sign">
+		<certificate path="path/to/android.keystore" if="android" />
+		<certificate path="path/to/author.p12" if="blackberry" />
+	</section>
+	
+</project>
