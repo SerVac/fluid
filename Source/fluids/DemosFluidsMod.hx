@@ -35,7 +35,7 @@ class DemosFluidsMod extends Sprite {
     var fluidSolver:NavierStokesSolverMod;
     var particles:flash.Vector<FluidParticle>;
 	
-	public var drawVelocities:Bool = true;
+	public var drawVelocities:Bool = false;
 	public var drawGrid:Bool = false;
 	
     var numParticles:Int;
@@ -121,16 +121,17 @@ class DemosFluidsMod extends Sprite {
 		var tileBitmap:BitmapData = new BitmapData(bitmapSize, bitmapSize, true, 0xffffffff);
 		tilesheet = new Tilesheet(tileBitmap);
 		tilesheet.addTileRect(rectPix);
-		tilesheet.addTileRect(new Rectangle(0, 0, 2, 2), new Point(0, 1));
+		tilesheet.addTileRect(new Rectangle(0, 0, bitmapSize, bitmapSize), new Point(0, 1));
 		particlesData = [];
 		
 		particleLayer.scrollRect = rect;
 		motionLayer.scrollRect = rect;
 		#end
 		
-        N = 25 * 25;
+		var n:Int = 16;
+        N = n * n;
 		dt = 1 / fps;
-        fluidSolver = new NavierStokesSolverMod(25, 25);
+        fluidSolver = new NavierStokesSolverMod(n, n);
         fluidSolver.set_fadeSpeed(0.007);
         fluidSolver.deltaT(dt);
         fluidSolver.set_viscosity(0.00015);
@@ -150,8 +151,8 @@ class DemosFluidsMod extends Sprite {
 		// vScale = velocityScale * 60 / 60.0;
         limitVelocity = 100;
 		
-        fluidSolver.set_fadeSpeed( 0.007);
-        fluidSolver.deltaT(1/60.0);//0.03;
+        fluidSolver.set_fadeSpeed(0.007);
+        fluidSolver.deltaT(dt);//0.03;
         fluidSolver.set_viscosity( 0.008);
 		
 		if (drawGrid)
