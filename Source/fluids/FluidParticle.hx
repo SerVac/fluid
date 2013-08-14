@@ -3,23 +3,22 @@ package fluids;
 	
  class FluidParticle {
 
-    public static var MOMENTUM:Float = 0.5;
-    public static var FLUID_FORCE:Float = 0.6;
+    //public static var MOMENTUM:Float = 0.5;
+    //public static var FLUID_FORCE:Float = 0.6;
 
     public var x:Float;
     public var y:Float;
-    private var _mass:Float = 1.0;
+    //private var _mass:Float = 1.0;
 
-    public var vx:Float;
-    public var vy:Float;
+    //public var vx:Float;
+    //public var vy:Float;
 
-    public var px:Float;
-    public var py:Float;
+    //public var px:Float;
+    //public var py:Float;
 
-	public function new () {
-	}
+    public function new () {}
 
-    public function   get_mass():Float {
+   /* public function   get_mass():Float {
         return _mass;
     }
 
@@ -31,6 +30,7 @@ package fluids;
 	
 	public function toString():String {
 		return "x: " + x + "; y: " + y;
-	}
+    }
+    */
 }
  
