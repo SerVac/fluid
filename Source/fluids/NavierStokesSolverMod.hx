@@ -1,515 +1,279 @@
- 
 package fluids;
-	import utilits.UtilitsMath;
+	
+   
+  import flash.Vector.Vector;
+  import utilits.UtilitsMath;
 
   class NavierStokesSolverMod {
 
-    public static var FLUID_DEFAULT_NX:Float = 25;
-    public static var FLUID_DEFAULT_NY:Float = 25;
-    public static var FLUID_DEFAULT_DT:Float = .05;
-    public static var FLUID_DEFAULT_VISC:Float = 0.0001;
-    public static var FLUID_DEFAULT_COLOR_DIFFUSION:Float = 0.0;
-    public static var FLUID_DEFAULT_FADESPEED:Float = 0.3;
-    public static var FLUID_DEFAULT_SOLVER_ITERATIONS:Int = 10;
+    public static var N:Int = 25;
+    public var h:Float;
+    public static var SIZE:UInt ;
 
-    public var r:flash.Vector<Float>;
-    public var g:flash.Vector<Float>;
-    public var b:flash.Vector<Float>;
-
-    public var x:flash.Vector<Float>;
-    public var u:flash.Vector<Float>;
-    public var uOld:flash.Vector<Float>;
-    public var v:flash.Vector<Float>;
-    public var vOld:flash.Vector<Float>;
-
-    public var dense:flash.Vector<Float>;
-    public var denseOld:flash.Vector<Float>;
-    public var _diff:Float = 0.25;
-
-    public var width:Int;
-    public var height:Int;
-
-    public var numCells:Int;
-    public var numCellsLite:Int;
-
-    private var _NX:Int;
-	private var _NY:Int;
-	private var _NX2:Int;
-	private var _NY2:Int;
+  
+    public var u_prev:Vector<Float>;
+    public var v_prev:Vector<Float>;
+    public var dense:Vector<Float>;
+    public var dense_prev:Vector<Float>;
+	  public var u:Vector<Float>;
+    public var v:Vector<Float>;
 	
-      var _invNumCells:Float;
-      var _dt:Float;
-      var _solverIterations:Int;
-      var _colorDiffusion:Float;
-
-      var wrap_x:Bool = false;
-      var wrap_y:Bool = false;
-
-      var _visc:Float;
-      var _fadeSpeed:Float;
-
-      var _tmp:flash.Vector<Float>;
-
-      var _avgDensity:Float;			// this will hold the average color of the last frame (how full it is)
-      var _uniformity:Float;			// this will hold the uniformity of the last frame (how uniform the color is);
-      var _avgSpeed:Float;
-
-
-//    public static const N:uInt = 25;
-//    public static var SIZE:uInt = (N + 2) * (N + 2);
-
-    /* public var u_prev:flash.Vector<Float> = new flash.Vector<Float>(SIZE, true);
-     public var v_prev:flash.Vector<Float> = new flash.Vector<Float>(SIZE, true);
-     public var dense:flash.Vector<Float> = new flash.Vector<Float>(SIZE, true);
-     public var dense_prev:flash.Vector<Float> = new flash.Vector<Float>(SIZE, true);*/
-
-
-    public function new(NX:Int, NY:Int) {
-        setup(NX, NY);
+    private var _dt:Float = 1.0/30.0;
+    private var dt0:Float;
+    private var CONST_1:Float;
+    
+	
+    public function new() {
+	reset();
     }
-
-    public function setup(NX:Int, NY:Int):Void {
-        _dt = FLUID_DEFAULT_DT;
-        _fadeSpeed = FLUID_DEFAULT_FADESPEED;
-        _solverIterations = FLUID_DEFAULT_SOLVER_ITERATIONS;
-        _colorDiffusion = FLUID_DEFAULT_COLOR_DIFFUSION;
-
-        _NX = NX;
-        _NY = NY;
-        _NX2 = _NX + 2;
-        _NY2 = _NY + 2;
-
-        numCellsLite = _NX * _NY;
-        numCells = _NX2 * _NY2;
-
-        _invNumCells = 1.0 / numCells;
-
-        width = _NX2;
-        height = _NY2;
-
-        reset();
-    }
-
 
     public function reset():Void {
+	h = 1.0 / N;
+	SIZE = (N + 2) * (N + 2);
+	tmp = new Vector<Float>(SIZE, true);
+	_dt = 1/30.0;
+        dt0 = _dt * N;
+        CONST_1 = _dt * N * N;
+		
         var fixed:Bool = false;
-		
-        u = new flash.Vector<Float>(numCells, fixed);
-        uOld = new flash.Vector<Float>(numCells, fixed);
-        v = new flash.Vector<Float>(numCells, fixed);
-        vOld = new flash.Vector<Float>(numCells, fixed);
-		
-        dense = new flash.Vector<Float>(numCells, fixed);
-        denseOld = new flash.Vector<Float>(numCells, fixed);
-		
-        var i:Int = numCells;
+	u = new Vector<Float>(SIZE, fixed);
+        u_prev = new Vector<Float>(SIZE, fixed);
+        v = new Vector<Float>(SIZE, fixed);
+        v_prev = new Vector<Float>(SIZE, fixed);
+
+        dense = new Vector<Float>(SIZE, true);
+        dense_prev = new Vector<Float>(SIZE, true);
+
+        var i:Int = SIZE;
         while (--i > -1) {
-            u[i] = uOld[i] = v[i] = vOld[i] = 0.0;
-        }
+            u[i] = u_prev[i] = v[i] = v_prev[i] = 0.0;
+        } 
+    }
+
+    public function applyForce(cellX:Int, cellY:Int, vx:Float, vy:Float):Void {
+        cellX += 1;
+        cellY += 1;
+        var index:Int = INDEX(cellX, cellY);
+        var dx:Float = u[index];
+        var dy:Float = v[index];
+
+        u[index] = (vx != 0) ? UtilitsMath.mlerp(vx, dx, 0.85) : dx;
+        v[index] = (vy != 0) ? UtilitsMath.mlerp(vy, dy, 0.85) : dy;
+
+    }
+    
+    
+    public function tick(dt:Float, visc:Float, diff:Float):Void {
+        vel_step(u, v, u_prev, v_prev, visc, dt);
+        dens_step(dense, dense_prev, u, v, diff, dt);
     }
 
 
-    public function update():Void {
-        addSourceUV();
-        swapUV();
-        diffuseUV(_visc);
-        project(u, v, uOld, vOld);
-        swapUV();
-        advect(1, u, uOld, uOld, vOld);
-        advect(2, v, vOld, uOld, vOld);
-        project(u, v, uOld, vOld);
-
-    }
-
-    //==============================================
-
-
-    function swap(x:flash.Vector<Float>, x0:flash.Vector<Float>):Void {
-        _tmp = x;
-        x = x0;
-        x0 = _tmp;
-    }
-
-
-    //--------------------------------------------
-    function addSource(x:flash.Vector<Float>, s:flash.Vector<Float>):Void {
-        var i:Int = numCells;
-        while (--i > -1) {
-            x[i] += _dt * s[i];
-        }
-    }
-
-    function addSourceUV():Void {
-        var i:Int = numCells;
-        while (--i > -1) {
-            u[i] += _dt * uOld[i];
-            v[i] += _dt * vOld[i];
-        }
-    }
-
-    function swapUV():Void {
-        _tmp = u;
-        u = uOld;
-        uOld = _tmp;
-		
-        _tmp = v;
-        v = vOld;
-        vOld = _tmp;
-    }
-
-
-     function diffuseUV(_diff:Float):Void {
-        var a:Float = _dt * _diff * _NX * _NY;
-        linearSolverUV(a, 1.0 + 4 * a);
-    }
-
-
-     function linearSolverUV(a:Float, c:Float):Void {
-        var index:Int;
-        var k:Int, i:Int, j:Int;
-        c = 1 / c;
-		
-        //for (k = 0; k < _solverIterations; ++k) {
-		 
-		
-		for(k in 1..._solverIterations){
-            //for (j = _NY; j > 0; --j) {
-			j = _NY;
-			while (--j > 0) {
-                index = FLUID_IX(_NX, j);
-                //for (i = _NX; i > 0; --i) {
-				i = _NX;
-				while (--i > 0) {
-                    //u[index] = ( ( u[ Std.int(index - 1)] + u[ Std.int(index + 1)] + u[Std.int(index - _NX2)] + u[Std.int(index + _NX2)] ) * a + uOld[index] ) * c;
-                    //v[index] = ( ( v[ Std.int(index - 1)] + v[Std.int(index + 1)] + v[Std.int(index - _NX2)] + v[Std.int(index + _NX2)] ) * a + vOld[index] ) * c;
-					u[index] = ( ( u[ index - 1] + u[ index + 1] + u[index - _NX2] + u[index + _NX2] ) * a + uOld[index] ) * c;
-                    v[index] = ( ( v[ index - 1] + v[index + 1] + v[index - _NX2] + v[index + _NX2] ) * a + vOld[index] ) * c;
-                    --index;
-                }
-            }
-            setBoundary(1, u);
-            setBoundary(2, v);
-        }
-    }
-
-     function project(x:flash.Vector<Float>, y:flash.Vector<Float>, p:flash.Vector<Float>, div:flash.Vector<Float>):Void {
-        var i:Int, j:Int;
-        var index:Int;
-
-        var h:Float = -0.5 / _NX;
-
-        //for (j = _NY; j > 0; --j) {
-		j = _NY;
-		while (--j > 0) {
-		 
-            index = FLUID_IX(_NX, j);
-            //for (i = _NX; i > 0; --i) {
-			i = _NX;
-			while (--i > 0) {
-				//div[index] = h * ( x[Std.int(index + 1)] - x[Std.int(index - 1)] + y[Std.int(index + _NX2)] - y[Std.int(index - _NX2)] );
-				div[index] = h * ( x[index + 1] - x[index - 1] + y[index + _NX2] - y[index - _NX2] );
-                p[index] = 0;
-                --index;
-            }
-        }
-
-        setBoundary(0, div);
-        setBoundary(0, p);
-
-        linearSolver(0, p, div, 1, 4);
-
-        var fx:Float = 0.5 * _NX;
-        var fy:Float = 0.5 * _NY;
-        //for (j = _NY; j > 0; --j) {
-		j = _NY;
-		while (--j > 0) {
-			index = FLUID_IX(_NX, j);
-			//for (i = _NX; i > 0; --i) {
-			i = _NX;
-			while (--i > 0) {
-				x[index] -= fx * (p[index + 1] - p[index - 1]);
-                //y[index] -= fy * (p[index + _NX2] - p[index - _NX2]);
-                y[index] -= fy * (p[index + _NX2] - p[index - _NX2]);
-                --index;
-            }
-        }
-		
-        setBoundary(1, x);
-        setBoundary(2, y);
-    }
-
-     function linearSolver(b:Int, x:flash.Vector<Float>, x0:flash.Vector<Float>, a:Float, c:Float):Void {
-        var k:Int, i:Int, j:Int;
-		
-        var index:Int;
-
-        if (a == 1 && c == 4) {
-            //for (k = 0; k < _solverIterations; ++k) {
-			for(k in 0..._solverIterations){
-                //for (j = _NY; j > 0; --j) {
-				j = _NY;
-				while (--j > 0) {
-                    index = FLUID_IX(_NX, j);
-                    //for (i = _NX; i > 0; --i) {
-					i = _NX;
-					while (--i > 0) {
-                        //x[index] = ( x[index - 1] + x[index + 1] + x[index - _NX2] + x[index + _NX2] + x0[index] ) * 0.25;
-                        x[index] = ( x[index - 1] + x[index + 1] + x[index - _NX2] + x[index + _NX2] + x0[index] ) * 0.25;
-                        --index;
-                    }
-                }
-                setBoundary(b, x);
-            }
-        }
-        else {
-            c = 1 / c;
-            //for (k = 0; k < _solverIterations; ++k) {
-			for(k in 0..._solverIterations){
-                //for (j = _NY; j > 0; --j) {
-				j = _NY;
-				while (--j > 0) {
-                    index = FLUID_IX(_NX, j);
-                    //for (i = _NX; i > 0; --i) {
-					i = _NX;
-					while (--i > 0) {
-                        //x[index] = ( ( x[index - 1] + x[index + 1] + x[index - _NX2] + x[index + _NX2] ) * a + x0[index] ) * c;
-                        x[index] = ( ( x[index - 1] + x[index + 1] + x[index - _NX2] + x[index + _NX2] ) * a + x0[index] ) * c;
-                        --index;
-                    }
-                }
-                setBoundary(b, x);
-            }
-        }
-    }
-
-
-     function setBoundary(bound:Int, x:flash.Vector<Float>):Void {
-        var dst1:Int, dst2:Int, src1:Int, src2:Int;
+    private function diffuse(b:Int, x:Vector<Float>, x0:Vector<Float>, diff:Float):Void {
         var i:Int;
-        var step:Int = FLUID_IX(0, 1) - FLUID_IX(0, 0);
-
-        dst1 = FLUID_IX(0, 1);
-        src1 = FLUID_IX(1, 1);
-        dst2 = FLUID_IX(_NX + 1, 1);
-        src2 = FLUID_IX(_NX, 1);
-
-        if (wrap_x) {
-            src1 ^= src2;
-            src2 ^= src1;
-            src1 ^= src2;
-        }
-        if (bound == 1 && !wrap_x) {
-            //for (i = _NY; i > 0; --i) {
-			i = _NY;
-			while (--i > 0) {
-                x[dst1] = -x[src1];
-                dst1 += step;
-                src1 += step;
-                x[dst2] = -x[src2];
-                dst2 += step;
-                src2 += step;
-            }
-        } else {
-            //for (i = _NY; i > 0; --i) {
-			i = _NY;
-			while (--i > 0) {
-                x[dst1] = x[src1];
-                dst1 += step;
-                src1 += step;
-                x[dst2] = x[src2];
-                dst2 += step;
-                src2 += step;
-            }
-        }
-
-        dst1 = FLUID_IX(1, 0);
-        src1 = FLUID_IX(1, 1);
-        dst2 = FLUID_IX(1, _NY + 1);
-        src2 = FLUID_IX(1, _NY);
-
-        if (wrap_y) {
-            src1 ^= src2;
-            src2 ^= src1;
-            src1 ^= src2;
-        }
-        if (bound == 2 && !wrap_y) {
-            //for (i = _NX; i > 0; --i) {
-			i = _NX;
-			while (--i > 0) {
-                x[dst1++] = -x[src1++];
-                x[dst2++] = -x[src2++];
-            }
-        } else {
-            //for (i = _NX; i > 0; --i) {
-			i = _NX;
-			while (--i > 0) {
-                x[dst1++] = x[src1++];
-                x[dst2++] = x[src2++];
-            }
-        }
+        var j:Int;
+        var k:Int;
+        var a:Float = diff * CONST_1;
+        var a2:Float = 1 / (1 + 4 * a);
+        var index:Int = 0;
 		
-        x[FLUID_IX(0, 0)] = 0.5 * (x[FLUID_IX(1, 0)] + x[FLUID_IX(0, 1)]);
-        x[FLUID_IX(0, _NY + 1)] = 0.5 * (x[FLUID_IX(1, _NY + 1)] + x[FLUID_IX(0, _NY)]);
-        x[FLUID_IX(_NX + 1, 0)] = 0.5 * (x[FLUID_IX(_NX, 0)] + x[FLUID_IX(_NX + 1, 1)]);
-        x[FLUID_IX(_NX + 1, _NY + 1)] = 0.5 * (x[FLUID_IX(_NX, _NY + 1)] + x[FLUID_IX(_NX + 1, _NY)]);
-
+	for(k in 0...20){
+        	for(i in 1...N+1){
+                	for(j in 1...N+1){
+                    		index = INDEX(i, j);
+                    		x[index] = (x0[index] + a
+                            	* (x[INDEX(i - 1, j)] + x[INDEX(i + 1, j)]
+                            	+ x[INDEX(i, j - 1)] + x[INDEX(i, j + 1)]))
+                            	* a2;
+                }
+            }
+            set_bnd(b, x);
+        }
     }
 
-	
-    function advect(b:Int, _d:flash.Vector<Float>, d0:flash.Vector<Float>, du:flash.Vector<Float>, dv:flash.Vector<Float>):Void {
-        var i:Int, j:Int, i0:Int, j0:Int, i1:Int, j1:Int, index:Int;
-        var x:Float, y:Float, s0:Float, t0:Float, s1:Float, t1:Float, dt0x:Float, dt0y:Float;
 
-        dt0x = _dt * _NX;
-        dt0y = _dt * _NY;
+    function advect(b:Int, d:Vector<Float>, d0:Vector<Float>, u:Vector<Float>, v:Vector<Float>):Void {
+        var i:Int, j:Int, i0:Int, j0:Int, i1:Int, j1:Int;
+        var x:Float, y:Float, s0:Float, t0:Float, s1:Float, t1:Float;
+		
+        var index:Int = 0;
+    	for(i in 1...N+1){
+            for(j in 1...N+1){
+                index = INDEX(i, j);
+                x = i - dt0 * u[index];
+                y = j - dt0 * v[index];
+                if (x < 0.5)
+                    x = 0.5;
+                if (x > N + 0.5)
+                    x = N + 0.5;
 
-        //for (j = _NY; j > 0; --j) {
-		j = _NY;
-		while (--j > 0) {
-            //for (i = _NX; i > 0; --i) {
-			i = _NX;
-			while (--i > 0) {
-
-                index = FLUID_IX(i, j);
-
-                x = i - dt0x * du[index];
-                y = j - dt0y * dv[index];
-
-                if (x > _NX + 0.5) x = _NX + 0.5;
-                if (x < 0.5) x = 0.5;
-
-                i0 =  Std.int(x);
+                i0 = Std.int(x);
                 i1 = i0 + 1;
-
-                if (y > _NY + 0.5) y = _NY + 0.5;
-                if (y < 0.5) y = 0.5;
+                if (y < 0.5)
+                    y = 0.5;
+                if (y > N + 0.5)
+                    y = N + 0.5;
 
                 j0 = Std.int(y);
                 j1 = j0 + 1;
-
                 s1 = x - i0;
                 s0 = 1 - s1;
                 t1 = y - j0;
                 t0 = 1 - t1;
-
-                _d[index] = s0 * (t0 * d0[FLUID_IX(i0, j0)] + t1 * d0[FLUID_IX(i0, j1)]) + s1 * (t0 * d0[FLUID_IX(i1, j0)] + t1 * d0[FLUID_IX(i1, j1)]);
-
+                d[index] = s0 * (t0 * d0[INDEX(i0, j0)] + t1 * d0[INDEX(i0, j1)])
+                        + s1 * (t0 * d0[INDEX(i1, j0)] + t1 * d0[INDEX(i1, j1)]);
             }
         }
-        setBoundary(b, _d);
+        set_bnd(b, d);
     }
 
-    public function applyForce(cellX:Int, cellY:Int, vx:Float, vy:Float):Void {
-        cellX++;
-        cellY++;
-        var dx:Float = u[FLUID_IX(cellX, cellY)];
-        var dy:Float = v[FLUID_IX(cellX, cellY)];
+
+    private function set_bnd(b:Int, x:Vector<Float>):Void {
+        var i:Int;
+        var index:Int = 0;
+        for(i in 1...N+1){
+       	    index = INDEX(1, i);
+            x[INDEX(0, i)] = (b == 1) ? -x[index] : x[index];
+            index = INDEX(N, i);
+            x[INDEX(N + 1, i)] = b == 1 ? -x[index] : x[index];
+            index = INDEX(i, 1);
+            x[INDEX(i, 0)] = b == 2 ? -x[index] : x[index];
+            index = INDEX(i, N);
+            x[INDEX(i, N + 1)] = b == 2 ? -x[index] : x[index];
+        }
+
+        x[INDEX(0, 0)] = 0.5 * (x[INDEX(1, 0)] + x[INDEX(0, 1)]);
+        x[INDEX(0, N + 1)] = 0.5 * (x[INDEX(1, N + 1)] + x[INDEX(0, N)]);
+        x[INDEX(N + 1, 0)] = 0.5 * (x[INDEX(N, 0)] + x[INDEX(N + 1, 1)]);
+        x[INDEX(N + 1, N + 1)] = 0.5 * (x[INDEX(N, N + 1)] + x[INDEX(N + 1, N)]);
+    }
+
+    private function dens_step(x:Vector<Float>, x0:Vector<Float>, u:Vector<Float>, v:Vector<Float>, diff:Float, dt:Float):Void {
+        add_source(x, x0, dt);
+        SWAP(x0, x);
+        diffuse(0, x, x0, diff);
+        SWAP(x0, x);
+        advect(0, x, x0, u, v);
+    }
+
+
+    private function vel_step(u:Vector<Float>, v:Vector<Float>, u0:Vector<Float>, v0:Vector<Float>, visc:Float, dt:Float):Void {
+        add_source(u, u0, dt);
+        add_source(v, v0, dt);
+        SWAP(u0, u);
+
+        diffuse(1, u, u0, visc);
+        SWAP(v0, v);
+        diffuse(2, v, v0, visc);
+
+        project(u, v, u0, v0);
+        SWAP(u0, u);
+        SWAP(v0, v);
+
+        advect(1, u, u0, u0, v0);
+        advect(2, v, v0, u0, v0);
+        project(u, v, u0, v0);
+
+    }
+
+    private function add_source(x:Vector<Float>, s:Vector<Float>, dt:Float):Void {
+        var size:Int = (N + 2) * (N + 2);
+        for(i in 0...size){
+        	x[i] += dt * s[i];
+        }
+
+    }
+
+     function addSourceUV(dt:Float):Void {
+        var i:Int = SIZE;
+        while (--i > -1) {
+            u[i] += dt * u_prev[i];
+            v[i] += dt * v_prev[i];
+        }
+    }
+
+    var limitVelocity:Float = 1.6;
+
+    private function project(u:Vector<Float>, v:Vector<Float>, p:Vector<Float>, div:Vector<Float>):Void {
+        var i:Int;
+        var j:Int;
+        var k:Int;
+        var index:Int = 0;
 		
-		// if( flag ) 1 else 2;
-		//u[FLUID_IX(cellX, cellY)] = (vx != 0) ? UtilitsMath.lerp(vx as Float, dx as Float, 0.85) : dx;
-		var temp:Float;
-		if (vx != 0)  temp = UtilitsMath.lerp(vx , dx, 0.85) else temp = dx;
-		u[FLUID_IX(cellX, cellY)] = temp;
-        //v[FLUID_IX(cellX, cellY)] = (vy != 0) ? UtilitsMath.lerp(vy as Float, dy as Float, 0.85) : dy;
-		if (vy != 0)  temp = UtilitsMath.lerp(vy, dy, 0.85) else temp = dy;
-		v[FLUID_IX(cellX, cellY)] = temp;
+        for(i in 1...N+1){
+                for(j in 1...N+1){
+                index = INDEX(i, j);
+                div[index] = -0.5* h * (u[INDEX(i + 1, j)] - u[INDEX(i - 1, j)]
+                        	+ v[INDEX(i, j + 1)] - v[INDEX(i, j - 1)]);
+						
+                p[index] = 0;
+            }
+        }
+        set_bnd(0, div);
+        set_bnd(0, p);
+		
+        for(k in 0...20){
+        	for(i in 1...N+1){
+                	for(j in 1...N+1){
+                    		index = INDEX(i, j);
+                    p[index] = (div[INDEX(i, j)] + p[INDEX(i - 1, j)]
+                            + p[INDEX(i + 1, j)] + p[INDEX(i, j - 1)]
+                            + p[INDEX(i, j + 1)]) * 0.25;
+                }
+            }
+            set_bnd(0, p);
+        }
+		
+        var n:Float;
+        for(i in 1...N+1){
+                for(j in 1...N+1){
+                index = INDEX(i, j);
+                u[index] -= 0.5 * (p[INDEX(i + 1, j)] - p[INDEX(i - 1, j)]) * N;
+                v[index] -= 0.5 * (p[INDEX(i, j + 1)] - p[INDEX(i, j - 1)]) * N;
+                
+		n = u[index];
+                u[index] = (Math.abs(n) > limitVelocity) ? UtilitsMath.signum(n) * limitVelocity : n;
+                n = v[index];
+                v[index] = (Math.abs(n) > limitVelocity) ? UtilitsMath.signum(n) * limitVelocity : n;
+            }
+        }
+		
+        set_bnd(1, u);
+        set_bnd(2, v);
     }
 
 
-    public function   wrapX():Bool {
-        return wrap_x;
+    private var tmp:Vector<Float> ;
+    private  function SWAP(x0:Vector<Float>, x:Vector<Float>):Void {
+        vectorCopy(x0, 0, tmp, 0, SIZE);
+        vectorCopy(x, 0, x0, 0, SIZE);
+        vectorCopy(tmp, 0, x, 0, SIZE);
     }
 
-    public function   wrapY():Bool {
-        return wrap_y;
+    public function vectorCopy(src:Vector<Float>, srcPos:Int, 
+						dest:Vector<Float>, destPos:Int, length:Int):Void {
+							
+        var lenSrc:Int = srcPos + length;
+        var lenDest:Int = destPos + length;
+        
+        for(i in srcPos...lenSrc){
+            dest[destPos] = src[i];
+            destPos++;
+            if (destPos == lenDest) break;
+        }
     }
 
-    public function getIndexForCellPosition(i:Int, j:Int):Int {
-        if (i < 1) i = 1; else if (i > _NX) i = _NX;
-        if (j < 1) j = 1; else if (j > _NY) j = _NY;
-        return FLUID_IX(i, j);
+    public inline function getDx(x:Int, y:Int):Float {
+        return u[INDEX(x + 1, y + 1)];
     }
 
-    public function getIndexForNormalizedPosition(x:Float, y:Float):Int {
-        return getIndexForCellPosition(Std.int(x * _NX2), Std.int(y * _NY2));
-    }
-
-    public function getDx(x:Int, y:Int):Float {
-//        return u[FLUID_IX(x + 1, y + 1)];
-//        var index:Float = INDEX(x + 1, y + 1);
-//        var index2:Float = getIndexForCellPosition(x,y);
-        var index:Int =  getIndexForCellPosition(x + 1, y + 1);
-
-        return u[index];
-    }
-
-    public function getDy(x:Int, y:Int):Float {
-//        return v[FLUID_IX(x + 1, y + 1)];
-//        var index:Float = INDEX(x + 1, y + 1);
-//        var index2:Float = getIndexForCellPosition(x,y);
-        var index:Int = getIndexForCellPosition(x + 1, y + 1);
-        return v[index];
+    public inline function getDy(x:Int, y:Int):Float {
+        return v[INDEX(x + 1, y + 1)];
     }
 
 
-      function FLUID_IX(i:Int, j:Int):Int {
-        return  (i + _NX2 * j);
-    }
-
-    public function   deltaT(dt:Float):Void {
-        _dt = dt;
-    }
-
-    /**
-     * @param fadeSpeed (0...1)
-     */
-    public function   set_fadeSpeed(fadeSpeed:Float):Void {
-        _fadeSpeed = fadeSpeed;
-    }
-
-
-    /**
-     * set Float of iterations for solver (higher is slower but more accurate)
-     */
-    public function   solverIterations(solverIterations:Int):Void {
-        _solverIterations = solverIterations;
-    }
-
-
-    public function   set_viscosity(newVisc:Float):Void {
-        _visc = newVisc;
-    }
-
-    public function   get_viscosity():Float {
-        return _visc;
-    }
-
-    public function   get_NX():Int {
-        return _NX;
-    }
-
-    public function   set_NX(value:Int):Void {
-        _NX = value;
-    }
-
-    public function   get_NY():Int {
-        return _NY;
-    }
-
-    public function   set_NY(value:Int):Void {
-        _NY = value;
-    }
-
-    public function   get_NX2():Int {
-        return _NX2;
-    }
-
-    public function   get_NY2():Int {
-        return _NY2;
-    }
-
-    public function   set_NY2(value:Int):Void {
-        _NY2 = value;
+    public inline function INDEX(i:Int, j:Int):Int {
+        return i + (N + 2) * j;
     }
 }
  
